@@ -167,12 +167,16 @@ class Package:
 
 @dataclass
 class PhpInstall:
-    binary: str
+    binary: str  # resolved path of the binary or Apache module
     sapi: str  # PHP's own SAPI name: cli, fpm-fcgi, apache2handler, ...
-    version: str  # upstream version as PHP reports it
-    ini_files: list[str] = field(default_factory=list)
+    version: str  # as PHP reports it, distro suffix included; "" if unknown
+    ini_files: list[str] = field(default_factory=list)  # php.ini first, then conf.d in load order
+    ini_values: dict[str, str] = field(default_factory=dict)  # master values from phpinfo
     package: Package | None = None
     distro: Distro | None = None
+    aliases: list[str] = field(default_factory=list)  # other paths resolving to binary
+    fpm_config: str | None = None  # main php-fpm.conf, FPM only
+    enabled: bool | None = None  # mod_php: LoadModule found; None = not checked
     warnings: list[str] = field(default_factory=list)
 
 

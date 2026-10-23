@@ -45,13 +45,20 @@ Runner = Callable[[Sequence[str]], CommandResult]
 Which = Callable[[str], "str | None"]
 
 
+# PHPRC and PHP_INI_SCAN_DIR make php read a different php.ini / conf.d than
+# the web server does; if they leak in from the caller's shell, `php -i`
+# describes a configuration no request ever sees.
+_DROPPED_ENV = ("PHPRC", "PHP_INI_SCAN_DIR")
+
+
 def run_command(argv: Sequence[str]) -> CommandResult:
     """Run a command with a C locale so output is parseable.
 
     Raises CommandError when the command cannot be started or times out;
     a non-zero exit is returned, not raised, because callers often expect it.
     """
-    env = dict(os.environ, LC_ALL="C", LANG="C")
+    env = {k: v for k, v in os.environ.items() if k not in _DROPPED_ENV}
+    env.update(LC_ALL="C", LANG="C")
     try:
         proc = subprocess.run(
             list(argv),
@@ -71,7 +78,7 @@ def run_command(argv: Sequence[str]) -> CommandResult:
     return CommandResult(tuple(argv), proc.returncode, proc.stdout, proc.stderr)
 
 
-def _describe_failure(result: CommandResult) -> str:
+def describe_failure(result: CommandResult) -> str:
     detail = result.stderr.strip() or result.stdout.strip() or "no output"
     return f"{shlex.join(result.argv)} exited {result.returncode}: {detail.splitlines()[0]}"
 
@@ -254,7 +261,7 @@ def _dpkg_lookup(path: str, run: Runner) -> tuple[Package | None, bool, list[str
     if search.returncode != 0:
         if "no path found" in search.stderr:
             return None, False, []
-        return None, False, [_describe_failure(search)]
+        return None, False, [describe_failure(search)]
     names = parse_dpkg_search(search.stdout)
     if not names:
         return None, False, [f"dpkg-query -S {path}: unexpected output: {search.stdout.strip()!r}"]
@@ -264,7 +271,7 @@ def _dpkg_lookup(path: str, run: Runner) -> tuple[Package | None, bool, list[str
         warnings.append(f"{path} is owned by several packages ({', '.join(names)}); using {names[0]}")
     show = run(["dpkg-query", "-W", "-f=${Package}\\t${Version}\\t${Source}\\n", names[0]])
     if show.returncode != 0:
-        return None, True, warnings + [_describe_failure(show)]
+        return None, True, warnings + [describe_failure(show)]
     package = parse_dpkg_show(show.stdout)
     if package is None:
         return None, True, warnings + [f"dpkg-query -W {names[0]}: unexpected output: {show.stdout.strip()!r}"]
@@ -276,7 +283,7 @@ def _rpm_lookup(path: str, run: Runner) -> tuple[Package | None, bool, list[str]
     if result.returncode != 0:
         if "is not owned by any package" in result.stdout + result.stderr:
             return None, False, []
-        return None, False, [_describe_failure(result)]
+        return None, False, [describe_failure(result)]
     packages = parse_rpm_query(result.stdout)
     if not packages:
         return None, False, [f"rpm -qf {path}: unexpected output: {result.stdout.strip()!r}"]

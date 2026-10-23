@@ -1,0 +1,4 @@
+PHP 8.3.6 (fpm-fcgi) (built: Oct 19 2026 15:16:58)
+Copyright (c) The PHP Group
+Zend Engine v4.3.6, Copyright (c) Zend Technologies
+    with Zend OPcache v8.3.6, Copyright (c), by Zend Technologies
