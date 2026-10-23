@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import sys
 import traceback
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
-from . import __version__
-from .advisories import DEFAULT_PATH, AdvisoryError, load
+from . import __version__, remediate
+from .advisories import DEFAULT_PATH, AdvisoryDB, AdvisoryError, load
 from .assess import EXIT_ERROR, assess, exit_code
-from .config import check_install, load_web_config
-from .discovery import HostFileSystem, discover
+from .config import WebConfig, check_install, load_web_config
+from .discovery import DiscoveryResult, HostFileSystem, discover
+from .models import Finding
 from .report import render_json, render_text
 
 DESCRIPTION = """\
 Audit this server for exposure to the PHP2Shell vulnerabilities
 (CVE-2026-109618, CVE-2026-109619) and related advisories.
 
-Read-only: it runs PHP binaries with -i / -v, queries dpkg or rpm, and reads
-configuration files. It never sends requests or changes anything.
+Read-only by default: it runs PHP binaries with -i / -v, queries dpkg or
+rpm, and reads configuration files. It never sends requests. Only --fix
+changes anything, and only PHP configuration, after showing a diff.
 """
 
 EPILOG = """\
@@ -64,18 +68,39 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="stop walking web roots after N entries (default: 200000)",
     )
+    fix = parser.add_argument_group("remediation")
+    fix.add_argument("--fix", action="store_true", help="apply the interim mitigations to PHP configuration")
+    fix.add_argument("--dry-run", action="store_true", help="with --fix: show the plan and diff, change nothing")
+    fix.add_argument("-y", "--yes", action="store_true", help="with --fix: do not ask for confirmation")
+    fix.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="with --fix: apply only this mitigation id, e.g. session-upload-progress-off (repeatable)",
+    )
+    fix.add_argument("--no-restart", action="store_true", help="with --fix: do not restart services")
+    fix.add_argument(
+        "--backup-dir",
+        default=remediate.DEFAULT_BACKUP_ROOT,
+        metavar="DIR",
+        help=f"with --fix: where backups go (default: {remediate.DEFAULT_BACKUP_ROOT})",
+    )
     parser.add_argument("--debug", action="store_true", help="show a traceback on errors")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
 
-def run(args: argparse.Namespace) -> int:
-    try:
-        db = load(args.advisories)
-    except AdvisoryError as exc:
-        print(f"php2shell-check: {exc}", file=sys.stderr)
-        return EXIT_ERROR
+@dataclass
+class HostAssessment:
+    discovery: DiscoveryResult
+    web: WebConfig
+    fs: HostFileSystem
+    findings: list[Finding]
+    warnings: list[str]
 
+
+def assess_host(args: argparse.Namespace, db: AdvisoryDB) -> HostAssessment:
     result = discover()
     fs = HostFileSystem(max_files=args.max_files)
     web = load_web_config(fs)
@@ -89,16 +114,92 @@ def run(args: argparse.Namespace) -> int:
     warnings = [*result.warnings, *web.warnings, *dict.fromkeys(fs.warnings)]
     if hasattr(os, "geteuid") and os.geteuid() != 0:
         warnings.append("not running as root: some config files and package data may be unreadable")
+    return HostAssessment(result, web, fs, findings, warnings)
 
-    code = exit_code(findings)
+
+def print_report(args: argparse.Namespace, db: AdvisoryDB, host: HostAssessment) -> int:
+    code = exit_code(host.findings)
     if args.json:
         distro = None
-        if result.distro:
-            distro = {"id": result.distro.os_id, "version_id": result.distro.version_id, "name": result.distro.pretty_name}
-        sys.stdout.write(render_json(findings, db, code, warnings, result.skipped, distro))
+        if host.discovery.distro:
+            d = host.discovery.distro
+            distro = {"id": d.os_id, "version_id": d.version_id, "name": d.pretty_name}
+        sys.stdout.write(render_json(host.findings, db, code, host.warnings, host.discovery.skipped, distro))
     else:
-        sys.stdout.write(render_text(findings, db, warnings, result.skipped, args.verbose))
+        sys.stdout.write(render_text(host.findings, db, host.warnings, host.discovery.skipped, args.verbose))
     return code
+
+
+def confirm(question: str, ask: Callable[[str], str] = input) -> bool:
+    try:
+        return ask(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def run_fix(args: argparse.Namespace, db: AdvisoryDB, host: HostAssessment) -> int:
+    unknown = set(args.only) - set(db.mitigations)
+    if unknown:
+        print(f"php2shell-check: unknown mitigation id(s): {', '.join(sorted(unknown))}", file=sys.stderr)
+        return EXIT_ERROR
+    today = datetime.date.today().isoformat()
+    plan = remediate.build_plan(host.findings, db, host.fs, today, only=set(args.only) or None)
+
+    print("Planned changes:\n")
+    print(remediate.render_plan(plan))
+    if plan.empty or args.dry_run:
+        if args.dry_run:
+            print("Dry run: nothing was changed.")
+        return exit_code(host.findings)
+
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        print("php2shell-check: --fix needs root to write configuration and restart services", file=sys.stderr)
+        return EXIT_ERROR
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print("php2shell-check: not a terminal; pass --yes to apply without confirmation", file=sys.stderr)
+            return EXIT_ERROR
+        if not confirm("Apply these changes?"):
+            print("Nothing was changed.")
+            return exit_code(host.findings)
+
+    after: list[HostAssessment] = []
+
+    def recheck() -> list[str]:
+        after.append(assess_host(args, db))
+        return remediate.recheck_targets(plan, after[-1].findings)
+
+    result = remediate.apply_plan(
+        plan, recheck, backup_root=args.backup_dir, restart=not args.no_restart
+    )
+    for message in result.messages:
+        print(message)
+    if not result.ok:
+        print("\nThe change was rolled back." if result.rolled_back else "\nNothing was changed.")
+        return EXIT_ERROR
+
+    print("\nDone. Current state:\n")
+    return print_report(args, db, after[-1])
+
+
+def run(args: argparse.Namespace) -> int:
+    try:
+        db = load(args.advisories)
+    except AdvisoryError as exc:
+        print(f"php2shell-check: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if (args.dry_run or args.yes or args.only or args.no_restart) and not args.fix:
+        print("php2shell-check: --dry-run, --yes, --only and --no-restart need --fix", file=sys.stderr)
+        return EXIT_ERROR
+    if args.fix and args.json:
+        print("php2shell-check: --fix cannot be combined with --json", file=sys.stderr)
+        return EXIT_ERROR
+
+    host = assess_host(args, db)
+    if args.fix:
+        return run_fix(args, db, host)
+    return print_report(args, db, host)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

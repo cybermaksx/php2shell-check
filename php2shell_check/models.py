@@ -175,6 +175,7 @@ class PhpInstall:
     package: Package | None = None
     distro: Distro | None = None
     aliases: list[str] = field(default_factory=list)  # other paths resolving to binary
+    ini_scan_dir: str | None = None  # conf.d directory PHP scans; None = none
     fpm_config: str | None = None  # main php-fpm.conf, FPM only
     enabled: bool | None = None  # mod_php: LoadModule found; None = not checked
     warnings: list[str] = field(default_factory=list)

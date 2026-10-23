@@ -135,6 +135,11 @@ class PhpInfo:
     def configure_command(self) -> str:
         return self.info.get("Configure Command", "")
 
+    @property
+    def scan_dir(self) -> str | None:
+        value = self.info.get("Scan this dir for additional .ini files", "(none)")
+        return None if value in ("", "(none)") else value
+
 
 def _html_rows(text: str) -> list[list[str]]:
     """Cells of every <tr> in phpinfo HTML, tags stripped and unescaped."""
@@ -363,6 +368,7 @@ def inspect_binary(candidate: Candidate, run: Runner) -> tuple[PhpInstall, str]:
         info = parse_phpinfo(output)
         install.version = info.version
         install.ini_files = info.ini_files
+        install.ini_scan_dir = info.scan_dir
         install.ini_values = info.directives
         configure_command = info.configure_command
         reported = sapi_from_server_api(info.server_api)
@@ -433,8 +439,8 @@ def _branch(version: str) -> str | None:
         return None
 
 
-def module_ini_files(branch: str | None, root: str) -> list[str]:
-    """ini files mod_php would load, inferred from the distro layout."""
+def module_ini_files(branch: str | None, root: str) -> tuple[list[str], str | None]:
+    """ini files and scan dir mod_php would use, inferred from the distro layout."""
     layouts = []
     if branch:
         layouts.append((f"/etc/php/{branch}/apache2/php.ini", f"/etc/php/{branch}/apache2/conf.d"))
@@ -443,14 +449,14 @@ def module_ini_files(branch: str | None, root: str) -> list[str]:
         if os.path.isfile(_rooted(ini, root)):
             # PHP parses the scan dir alphabetically, as sorted() does.
             names = sorted(os.path.basename(p) for p in glob.glob(_rooted(scan_dir, root) + "/*.ini"))
-            return [ini, *(f"{scan_dir}/{name}" for name in names)]
-    return []
+            return [ini, *(f"{scan_dir}/{name}" for name in names)], scan_dir
+    return [], None
 
 
 def inspect_module(path: str, enabled: bool, root: str) -> PhpInstall:
     install = PhpInstall(binary=path, sapi="apache2handler", version="", enabled=enabled)
     branch = branch_from_module_name(os.path.basename(path))
-    install.ini_files = module_ini_files(branch, root)
+    install.ini_files, install.ini_scan_dir = module_ini_files(branch, root)
     if install.ini_files:
         install.warnings.append("mod_php ini files inferred from the distro layout, not reported by PHP")
     else:
