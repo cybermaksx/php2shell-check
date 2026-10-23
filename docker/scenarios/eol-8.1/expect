@@ -1,0 +1,5 @@
+exit=2
+fpm-fcgi=EOL
+cli=EOL
+fpm-fcgi!~matches no files
+fpm-fcgi!~no FPM pools found

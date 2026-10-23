@@ -1,0 +1,6 @@
+exit=0
+fpm-fcgi=PATCHED
+apache2handler=PATCHED
+cli=PATCHED
+fpm-fcgi!~no FPM pools found
+fpm-fcgi!~matches no files

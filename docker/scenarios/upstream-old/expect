@@ -1,0 +1,5 @@
+exit=3
+fpm-fcgi=UNKNOWN
+cli=UNKNOWN
+fpm-fcgi!~matches no files
+fpm-fcgi!~no FPM pools found
