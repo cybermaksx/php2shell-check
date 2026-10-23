@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .advisories import AdvisoryDB
-from .config import FileSystem, ParseResult, Pool, parse_fpm
+from .config import FileSystem, ParseResult, Pool, fpm_prefix, parse_fpm
 from .distro import CommandError, Runner, Which, describe_failure, run_command
 from .models import FailingContext, Finding, InstallStatus, Mitigation, PhpInstall
 from .version import VersionError, parse_upstream
@@ -207,7 +207,8 @@ def build_plan(
                 else:
                     conf = install.fpm_config or ""
                     if conf not in pools_by_conf:
-                        pools_by_conf[conf] = {p.name: p for p in parse_fpm(fs, conf, ParseResult())}
+                        pools = parse_fpm(fs, conf, ParseResult(), prefix=fpm_prefix(install.binary))
+                        pools_by_conf[conf] = {p.name: p for p in pools}
                     pool = pools_by_conf[conf].get(detail)
                     if pool is None:
                         plan.manual.append(f"{mitigation.setting}: pool {detail} not found in {conf}; edit it by hand")

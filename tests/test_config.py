@@ -471,3 +471,29 @@ def test_expectation_type_is_used():
     # A size check must compare bytes, not strings.
     check = HardeningCheck("x", "post_max_size", "size", (), Expectation("lte", "32M"))
     assert evaluate(check, [Context("c", [a("post_max_size", "33554432", Layer.INI)])], "8M").satisfied is True
+
+
+def test_relative_fpm_include_uses_the_prefix(tmp_path):
+    # Layout of the official php Docker image: the include is relative to
+    # FPM's prefix (/usr/local), not to the directory of php-fpm.conf, and
+    # two files both define [www].
+    etc = tmp_path / "usr/local/etc"
+    (etc / "php-fpm.d").mkdir(parents=True)
+    (etc / "php-fpm.conf").write_text("[global]\ninclude=etc/php-fpm.d/*.conf\n")
+    (etc / "php-fpm.d/www.conf").write_text("[www]\nlisten = 127.0.0.1:9000\nphp_value[memory_limit] = 64M\n")
+    (etc / "php-fpm.d/zz-docker.conf").write_text("[global]\ndaemonize = no\n[www]\nlisten = 9000\n")
+    fs = HostFileSystem(str(tmp_path))
+    result = ParseResult()
+    pools = parse_fpm(fs, "/usr/local/etc/php-fpm.conf", result, prefix="/usr/local")
+    assert [p.name for p in pools] == ["www"]
+    assert pools[0].listen == "9000"  # zz-docker.conf comes last and wins
+    assert pools[0].values[0].value == "64M"
+    assert result.warnings == []
+
+
+def test_fpm_prefix():
+    from php2shell_check.config import fpm_prefix
+
+    assert fpm_prefix("/usr/local/sbin/php-fpm") == "/usr/local"
+    assert fpm_prefix("/usr/sbin/php-fpm8.3") == "/usr"
+    assert fpm_prefix("/opt/remi/php83/root/usr/sbin/php-fpm") == "/opt/remi/php83/root/usr"

@@ -236,11 +236,21 @@ _FPM_PHP_RE = re.compile(r"^(php_value|php_flag|php_admin_value|php_admin_flag)\
 _FPM_KEY_RE = re.compile(r"^([A-Za-z0-9_.]+)\s*=\s*(.*)$")
 
 
-def parse_fpm(fs: FileSystem, main_conf: str, result: ParseResult, max_depth: int = 10) -> list[Pool]:
+def fpm_prefix(binary: str) -> str:
+    """FPM's install prefix: /usr/local/sbin/php-fpm -> /usr/local."""
+    return os.path.dirname(os.path.dirname(binary)) or "/"
+
+
+def parse_fpm(
+    fs: FileSystem, main_conf: str, result: ParseResult, prefix: str | None = None, max_depth: int = 10
+) -> list[Pool]:
     """Pools defined by php-fpm.conf and everything it includes.
 
     `include` works at global and pool level; in pool context the included
     file's settings belong to that pool, and $pool expands to its name.
+    A relative include is resolved against FPM's prefix, as FPM does (the
+    official Docker image uses `include=etc/php-fpm.d/*.conf`); the config
+    file's own directory is tried as a fallback.
     """
     pools: dict[str, Pool] = {}
     seen: set[str] = set()
@@ -284,8 +294,11 @@ def parse_fpm(fs: FileSystem, main_conf: str, result: ParseResult, max_depth: in
             if pool is not None:
                 value = value.replace("$pool", pool.name)
             if key == "include":
-                pattern = value if os.path.isabs(value) else os.path.join(base_dir, value)
-                matches = fs.glob(pattern)
+                if os.path.isabs(value):
+                    matches = fs.glob(value)
+                else:
+                    bases = [b for b in (prefix, base_dir) if b]
+                    matches = next((m for m in (fs.glob(os.path.join(b, value)) for b in bases) if m), [])
                 if not matches:
                     result.warnings.append(f"{origin}: include {value} matches no files")
                 # Like FPM's own parser, the section an included file ends
@@ -963,7 +976,7 @@ def check_install(
     pools: list[Pool] = []
     if install.sapi == "fpm-fcgi" and install.fpm_config:
         parse = ParseResult()
-        pools = parse_fpm(fs, install.fpm_config, parse)
+        pools = parse_fpm(fs, install.fpm_config, parse, prefix=fpm_prefix(install.binary))
         report.warnings.extend(parse.warnings)
 
     roots = list(dict.fromkeys([*web.docroots, *extra_roots]))
