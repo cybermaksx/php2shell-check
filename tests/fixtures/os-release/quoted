@@ -1,0 +1,5 @@
+# comment line
+ID='weird'
+VERSION_ID="1.0"
+PRETTY_NAME="Has \"escaped\" quotes and a \$dollar"
+BROKEN="unbalanced

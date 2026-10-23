@@ -1,0 +1,1 @@
+php82-php-cli	(none)	8.2.13	1.el9.remi	php82-php-8.2.13-1.el9.remi.src.rpm

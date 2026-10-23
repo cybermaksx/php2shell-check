@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-23",
+
+  "sources": {
+    "ghsa-w8hw": { "url": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w", "tier": "primary" },
+    "ghsa-6wmf": { "url": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp", "tier": "primary" },
+    "php-net": { "url": "https://www.php.net/archive/2026.php#2026-10-20-1", "tier": "primary" },
+    "php-foundation": { "url": "https://thephp.foundation/blog/2026/10/21/todays-php-security-release-and-how-were-strengthening-php-security/", "tier": "primary" },
+    "php-manual-ini": { "url": "https://www.php.net/manual/en/ini.list.php", "tier": "primary" },
+    "php-manual-errorfunc": { "url": "https://www.php.net/manual/en/errorfunc.configuration.php", "tier": "primary" },
+    "usn-8948-1": { "url": "https://ubuntu.com/security/notices/USN-8948-1", "tier": "primary" },
+    "debian-109618": { "url": "https://security-tracker.debian.org/tracker/CVE-2026-109618", "tier": "primary" },
+    "debian-109619": { "url": "https://security-tracker.debian.org/tracker/CVE-2026-109619", "tier": "primary" },
+    "rhsb-2026-013": { "url": "https://access.redhat.com/security/vulnerabilities/RHSB-2026-013", "tier": "primary" },
+    "redhat-109618": { "url": "https://access.redhat.com/security/cve/CVE-2026-109618", "tier": "primary" },
+    "redhat-109619": { "url": "https://access.redhat.com/security/cve/CVE-2026-109619", "tier": "primary" },
+    "cert-eu": { "url": "https://cert.europa.eu/publications/security-advisories/2026-018", "tier": "secondary" },
+    "cisa": { "url": "https://www.cisa.gov/news-events/alerts/2026/10/21/critical-vulnerabilities-php-require-immediate-patching", "tier": "secondary" },
+    "sans-isc": { "url": "https://isc.sans.edu/diary.html?storyid=44534", "tier": "secondary" },
+    "wiz": { "url": "https://www.wiz.io/blog/php2shell-php-rce", "tier": "secondary" },
+    "watchtowr": { "url": "https://watchtowr.com/intelligence/php-cve-2026-109618-faq/", "tier": "secondary" }
+  },
+
+  "branches": {
+    "8.5": { "eol": false, "sources": ["php-net"] },
+    "8.4": { "eol": false, "sources": ["php-net"] },
+    "8.3": { "eol": false, "sources": ["php-net"] },
+    "8.2": { "eol": false, "eol_date": "2026-12-31", "sources": ["php-net"] },
+    "8.1": { "eol": true, "source_backport": "PHP-8.1-CVE-2026-109618-109619", "sources": ["php-net"] },
+    "8.0": { "eol": true, "source_backport": "PHP-8.0-CVE-2026-109618-109619", "sources": ["php-net"] },
+    "7.4": { "eol": true, "source_backport": "PHP-7.4-CVE-2026-109618-109619", "sources": ["php-net"] },
+    "7.3": { "eol": true, "sources": ["php-net"] },
+    "7.2": { "eol": true, "sources": ["php-net"] },
+    "7.1": { "eol": true, "sources": ["php-net"] },
+    "7.0": { "eol": true, "sources": ["php-net"] },
+    "5.6": { "eol": true, "sources": ["php-net"] },
+    "5.5": { "eol": true, "sources": ["php-net"] },
+    "5.4": { "eol": true, "sources": ["php-net"] }
+  },
+
+  "advisories": [
+    {
+      "id": "CVE-2026-109618",
+      "aliases": ["GHSA-w8hw-w9fx-j79w"],
+      "title": "RCE via OOM corruption",
+      "published": "2026-10-21",
+      "status": "confirmed",
+      "sources": ["ghsa-w8hw", "php-net"],
+      "severity": [
+        {
+          "system": "cvss_v4",
+          "score": 9.2,
+          "vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+          "sources": ["ghsa-w8hw"]
+        },
+        { "system": "cvss_v3.1", "score": 8.1, "sources": ["redhat-109618"] }
+      ],
+      "upstream": {
+        "fixed": [
+          { "branch": "8.5", "version": "8.5.12", "sources": ["ghsa-w8hw", "php-net"] },
+          { "branch": "8.4", "version": "8.4.27", "sources": ["ghsa-w8hw", "php-net"] },
+          { "branch": "8.3", "version": "8.3.36", "sources": ["ghsa-w8hw", "php-net"] },
+          { "branch": "8.2", "version": "8.2.35", "sources": ["ghsa-w8hw", "php-net"] }
+        ],
+        "affected_since": {
+          "version": "5.4",
+          "status": "unconfirmed",
+          "sources": ["wiz", "watchtowr"],
+          "note": "TODO: no primary source gives a lower bound. Wiz says every version back to 5.4 is affected by at least one of the two CVEs, not this one specifically; Red Hat says RHEL 7's php 5.4 lacks the vulnerable code for this CVE."
+        }
+      },
+      "sapis": {
+        "apache2handler": { "status": "confirmed", "sources": ["ghsa-w8hw", "php-foundation"] },
+        "fpm-fcgi": {
+          "status": "susceptible",
+          "sources": ["ghsa-w8hw", "php-foundation"],
+          "note": "No pre-application exploit demonstrated; the PHP Foundation confirms RCE through application-level code paths."
+        },
+        "frankenphp": { "status": "likely", "sources": ["ghsa-w8hw"] },
+        "litespeed": { "status": "likely", "sources": ["ghsa-w8hw"] },
+        "cgi-fcgi": { "status": "listed", "sources": ["php-net"] }
+      },
+      "distros": [
+        { "os_id": "ubuntu", "version_id": "26.10", "scheme": "dpkg", "source_package": "php8.5", "fixed": "8.5.9-0ubuntu2.1", "advisory": "USN-8948-1", "sources": ["usn-8948-1"] },
+        { "os_id": "ubuntu", "version_id": "26.04", "scheme": "dpkg", "source_package": "php8.5", "fixed": "8.5.4-0ubuntu1.5", "advisory": "USN-8948-1", "sources": ["usn-8948-1"] },
+        { "os_id": "ubuntu", "version_id": "24.04", "scheme": "dpkg", "source_package": "php8.3", "fixed": "8.3.6-0ubuntu0.24.04.13", "advisory": "USN-8948-1", "sources": ["usn-8948-1"] },
+        { "os_id": "ubuntu", "version_id": "22.04", "scheme": "dpkg", "source_package": "php8.1", "fixed": "8.1.2-1ubuntu2.28", "advisory": "USN-8948-1", "sources": ["usn-8948-1"] },
+        { "os_id": "debian", "version_id": "12", "scheme": "dpkg", "source_package": "php8.2", "fixed": "8.2.35-1~deb12u1", "advisory": "DLA-4848-1", "sources": ["debian-109618"] },
+        { "os_id": "debian", "version_id": "13", "scheme": "dpkg", "source_package": "php8.4", "fixed": "8.4.27-1~deb13u1", "advisory": "DSA-6574-1", "sources": ["debian-109618"] },
+        { "os_id": "rhel", "version_id": "7", "scheme": "rpm", "source_package": "php", "not_affected": true, "sources": ["rhsb-2026-013"] }
+      ],
+      "mitigations": ["memory-limit-unlimited", "post-max-size-low"]
+    },
+
+    {
+      "id": "CVE-2026-109619",
+      "aliases": ["GHSA-6wmf-4rv5-p3rp"],
+      "title": "RCE via stale global state",
+      "published": "2026-10-21",
+      "status": "confirmed",
+      "sources": ["ghsa-6wmf", "php-net"],
+      "severity": [
+        {
+          "system": "cvss_v4",
+          "score": 9.2,
+          "vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+          "sources": ["ghsa-6wmf"]
+        },
+        {
+          "system": "cvss_v3.1",
+          "score": 8.1,
+          "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+          "sources": ["redhat-109619"]
+        }
+      ],
+      "upstream": {
+        "fixed": [
+          { "branch": "8.5", "version": "8.5.12", "sources": ["ghsa-6wmf", "php-net"] },
+          { "branch": "8.4", "version": "8.4.27", "sources": ["ghsa-6wmf", "php-net"] },
+          { "branch": "8.3", "version": "8.3.36", "sources": ["ghsa-6wmf", "php-net"] },
+          { "branch": "8.2", "version": "8.2.35", "sources": ["ghsa-6wmf", "php-net"] }
+        ],
+        "affected_since": {
+          "version": "5.4",
+          "status": "unconfirmed",
+          "sources": ["wiz", "watchtowr"],
+          "note": "TODO: no primary source gives a lower bound. Red Hat confirms RHEL 7's php 5.4 is affected by this CVE."
+        }
+      },
+      "sapis": {
+        "apache2handler": {
+          "status": "confirmed",
+          "sources": ["ghsa-6wmf"],
+          "note": "Per-directory .htaccess php_value/php_flag/php_admin_* is applied before request startup."
+        },
+        "fpm-fcgi": {
+          "status": "conditional",
+          "sources": ["ghsa-6wmf"],
+          "note": "Exposed when the frontend sends PHP_VALUE/PHP_ADMIN_VALUE that produce early diagnostics; session upload progress RCE validated against FPM."
+        },
+        "litespeed": { "status": "conditional", "sources": ["ghsa-6wmf"] },
+        "frankenphp": {
+          "status": "not_established",
+          "sources": ["ghsa-6wmf"],
+          "note": "No early consumer in the default configuration; the advisory says this does not make it immune."
+        },
+        "cgi-fcgi": { "status": "listed", "sources": ["php-net"] }
+      },
+      "distros": [
+        { "os_id": "ubuntu", "version_id": "26.10", "scheme": "dpkg", "source_package": "php8.5", "fixed": "8.5.9-0ubuntu2.1", "advisory": "USN-8948-1", "sources": ["usn-8948-1"] },
+        { "os_id": "ubuntu", "version_id": "26.04", "scheme": "dpkg", "source_package": "php8.5", "fixed": "8.5.4-0ubuntu1.5", "advisory": "USN-8948-1", "sources": ["usn-8948-1"] },
+        { "os_id": "ubuntu", "version_id": "24.04", "scheme": "dpkg", "source_package": "php8.3", "fixed": "8.3.6-0ubuntu0.24.04.13", "advisory": "USN-8948-1", "sources": ["usn-8948-1"] },
+        { "os_id": "ubuntu", "version_id": "22.04", "scheme": "dpkg", "source_package": "php8.1", "fixed": "8.1.2-1ubuntu2.28", "advisory": "USN-8948-1", "sources": ["usn-8948-1"] },
+        { "os_id": "debian", "version_id": "12", "scheme": "dpkg", "source_package": "php8.2", "fixed": "8.2.35-1~deb12u1", "advisory": "DLA-4848-1", "sources": ["debian-109619"] },
+        { "os_id": "debian", "version_id": "13", "scheme": "dpkg", "source_package": "php8.4", "fixed": "8.4.27-1~deb13u1", "advisory": "DSA-6574-1", "sources": ["debian-109619"] }
+      ],
+      "mitigations": ["session-upload-progress-off", "fatal-error-backtraces-off"]
+    },
+
+    {
+      "id": "CVE-2026-115560",
+      "title": "Session upload progress with a runtime serialize_handler switch",
+      "published": "2026-10-23",
+      "status": "unconfirmed",
+      "sources": ["php-net", "cert-eu", "rhsb-2026-013"],
+      "note": "TODO: full advisory promised with the next regular release; no affected versions, fixed versions or CVSS yet. Requires session.serialize_handler set to php_binary or php_serialize, switched to php with ini_set() before session_start(), while session upload progress is enabled.",
+      "mitigations": ["session-upload-progress-off"]
+    }
+  ],
+
+  "mitigations": {
+    "session-upload-progress-off": {
+      "setting": "session.upload_progress.enabled",
+      "type": "bool",
+      "php_default": "1",
+      "expect": { "op": "eq", "value": "0" },
+      "early_only": true,
+      "coverage": "partial",
+      "status": "confirmed",
+      "sources": ["ghsa-6wmf", "php-net", "rhsb-2026-013", "php-manual-ini"],
+      "note": "Blocks the confirmed session paths only. Set in php.ini, an FPM pool or server config, then restart every worker; ini_set() and .user.ini do not count. Red Hat states it removes exposure to CVE-2026-109619 on the RHEL 7 php package and fully protects against CVE-2026-115560."
+    },
+    "fatal-error-backtraces-off": {
+      "setting": "fatal_error_backtraces",
+      "type": "bool",
+      "php_default": "1",
+      "expect": { "op": "eq", "value": "0" },
+      "early_only": true,
+      "branches": ["8.5"],
+      "coverage": "partial",
+      "status": "confirmed",
+      "sources": ["ghsa-6wmf", "php-net", "php-manual-errorfunc"],
+      "note": "Blocks the confirmed fatal backtrace path only. The setting exists from PHP 8.5.0."
+    },
+    "memory-limit-unlimited": {
+      "setting": "memory_limit",
+      "type": "size",
+      "php_default": "128M",
+      "expect": { "op": "eq", "value": "-1" },
+      "early_only": true,
+      "prefer_admin": true,
+      "coverage": "partial",
+      "status": "confirmed",
+      "sources": ["php-net", "ghsa-w8hw", "rhsb-2026-013", "php-manual-ini"],
+      "note": "Counter-intuitive: removes the controllable PHP memory limit failure. Set with php_admin_value so applications cannot put a finite limit back. Pair with a container or cgroup limit; never RLIMIT_AS or RLIMIT_DATA."
+    },
+    "post-max-size-low": {
+      "setting": "post_max_size",
+      "type": "size",
+      "php_default": "8M",
+      "expect": { "op": "lte", "value": "32M" },
+      "early_only": true,
+      "coverage": "partial",
+      "status": "confirmed",
+      "sources": ["php-net", "rhsb-2026-013", "php-manual-ini"],
+      "note": "8M for applications without file uploads, 32M with them. Keep upload_max_filesize below post_max_size, and enforce request limits at the web server, including for requests without a usable Content-Length."
+    }
+  },
+
+  "hardening": [
+    {
+      "id": "expose-php-off",
+      "setting": "expose_php",
+      "type": "bool",
+      "expect": { "op": "eq", "value": "0" },
+      "sources": [],
+      "note": "General hardening, not from the advisories: hides the PHP version from response headers."
+    },
+    {
+      "id": "max-input-nesting-level",
+      "setting": "max_input_nesting_level",
+      "type": "int",
+      "sources": ["ghsa-w8hw"],
+      "note": "The advisory recommends reducing it; nested field names are one multipart path to OOM. It gives no target value."
+    },
+    {
+      "id": "max-input-vars",
+      "setting": "max_input_vars",
+      "type": "int",
+      "sources": ["ghsa-w8hw"],
+      "note": "The advisory recommends bounding input variables. It gives no target value."
+    },
+    {
+      "id": "max-file-uploads",
+      "setting": "max_file_uploads",
+      "type": "int",
+      "sources": ["ghsa-w8hw"],
+      "note": "The advisory recommends bounding uploads; empty file controls are one multipart path to OOM. It gives no target value."
+    },
+    {
+      "id": "upload-max-filesize",
+      "setting": "upload_max_filesize",
+      "type": "size",
+      "sources": ["php-net"],
+      "note": "Keep below post_max_size."
+    }
+  ]
+}

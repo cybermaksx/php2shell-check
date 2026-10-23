@@ -1,0 +1,3 @@
+diversion by php-wrapper from: /usr/bin/php8.3
+diversion by php-wrapper to: /usr/bin/php8.3.real
+php8.3-cli:amd64: /usr/bin/php8.3
