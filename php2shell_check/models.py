@@ -180,11 +180,52 @@ class PhpInstall:
     warnings: list[str] = field(default_factory=list)
 
 
+# --- assessment results -----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AdvisoryVerdict:
+    advisory_id: str
+    status: InstallStatus | None  # None: does not apply (not affected, or no data yet)
+    basis: str  # "distro", "upstream", "eol", "none"
+    reason: str
+
+
+@dataclass(frozen=True)
+class FailingContext:
+    context: str
+    value: str
+    origin: str
+
+
+@dataclass
+class SettingCheck:
+    id: str
+    setting: str
+    satisfied: bool | None  # None: could not be decided
+    values: list[FailingContext] = field(default_factory=list)  # every context
+    failing: list[FailingContext] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    note: str = ""  # from advisories.json
+
+
 @dataclass
 class Finding:
     install: PhpInstall
     status: InstallStatus
     mitigation: MitigationStatus | None = None
-    advisories: list[str] = field(default_factory=list)  # CVE ids that apply
+    verdicts: list[AdvisoryVerdict] = field(default_factory=list)
+    mitigations: list[SettingCheck] = field(default_factory=list)
+    hardening: list[SettingCheck] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+    @property
+    def advisories(self) -> list[str]:
+        """CVE ids this install is not patched against."""
+        return [
+            v.advisory_id
+            for v in self.verdicts
+            if v.status is not None and v.status is not InstallStatus.PATCHED
+        ]

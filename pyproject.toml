@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=77"]  # SPDX license string
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "php2shell-check"
+dynamic = ["version"]
+description = "Audit Linux servers for exposure to the PHP2Shell vulnerabilities (CVE-2026-109618, CVE-2026-109619)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Magsud Huseynli (cybermaksx)", email = "cybermaksx@proton.me" }]
+maintainers = [{ name = "Magsud Huseynli (cybermaksx)", email = "cybermaksx@proton.me" }]
+keywords = ["php", "security", "audit", "cve", "php-fpm"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/cybermaksx/php2shell-check"
+Author = "https://github.com/cybermaksx"
+
+[project.scripts]
+php2shell-check = "php2shell_check.cli:main"
+
+[tool.setuptools]
+# Ship the top-level data/ directory inside the package as php2shell_check/data.
+packages = ["php2shell_check", "php2shell_check.data"]
+package-dir = { "php2shell_check.data" = "data" }
+
+[tool.setuptools.package-data]
+"php2shell_check.data" = ["*.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "php2shell_check.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

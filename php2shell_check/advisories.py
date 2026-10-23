@@ -30,7 +30,19 @@ from .models import (
 )
 
 SCHEMA_VERSION = 1
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "data" / "advisories.json"
+
+
+def _default_path() -> Path:
+    """data/advisories.json in a checkout; php2shell_check/data/ once
+    installed (pyproject.toml maps the top-level data/ directory there)."""
+    package_dir = Path(__file__).resolve().parent
+    for candidate in (package_dir / "data" / "advisories.json", package_dir.parent / "data" / "advisories.json"):
+        if candidate.is_file():
+            return candidate
+    return package_dir.parent / "data" / "advisories.json"
+
+
+DEFAULT_PATH = _default_path()
 
 FACT_STATUSES = {"confirmed", "unconfirmed"}
 SOURCE_TIERS = {"primary", "secondary"}
