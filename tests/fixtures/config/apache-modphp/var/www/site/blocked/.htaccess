@@ -1,0 +1,4 @@
+# admin flag in the vhost locks this; PHP ignores the line
+php_flag session.upload_progress.enabled on
+php_admin_value memory_limit 64M
+php_value max_file_uploads 500

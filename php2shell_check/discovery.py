@@ -466,6 +466,66 @@ def version_from_package(package_version: str) -> str | None:
     return match.group(1) if match else None
 
 
+# --- config file access for config.py ---------------------------------------
+
+
+class HostFileSystem:
+    """config.FileSystem backed by the real filesystem (or a fake root in
+    tests). Every unreadable file or directory becomes a warning."""
+
+    def __init__(self, root: str = "/", max_files: int = 200_000) -> None:
+        self.root = root
+        self.max_files = max_files
+        self.warnings: list[str] = []
+        self._cache: dict[str, str | None] = {}
+
+    def _host(self, path: str) -> str:
+        return _rooted(path, self.root)
+
+    def _guest(self, host_path: str) -> str:
+        if self.root in ("", "/"):
+            return host_path
+        return "/" + os.path.relpath(host_path, self.root)
+
+    def read(self, path: str) -> str | None:
+        if path not in self._cache:
+            self._cache[path] = _read_text(self._host(path), self.warnings)
+        return self._cache[path]
+
+    def glob(self, pattern: str) -> list[str]:
+        host_pattern = self._host(pattern)
+        if not glob.has_magic(host_pattern):
+            return [pattern] if os.path.isfile(host_pattern) else []
+        return [self._guest(p) for p in sorted(glob.glob(host_pattern)) if os.path.isfile(p)]
+
+    def find(self, roots: Sequence[str], names: set[str]) -> list[str]:
+        found: list[str] = []
+        visited = 0
+
+        def on_error(exc: OSError) -> None:
+            self.warnings.append(f"cannot list {self._guest(exc.filename)}: {exc.strerror}")
+
+        for root in roots:
+            host_root = self._host(root)
+            if not os.path.isdir(host_root):
+                continue
+            # followlinks=False: a symlink loop in a web root must not hang the scan.
+            for dirpath, _dirs, files in os.walk(host_root, onerror=on_error, followlinks=False):
+                visited += 1 + len(files)
+                if visited > self.max_files:
+                    self.warnings.append(
+                        f"stopped scanning {root} after {self.max_files} entries; "
+                        "per-directory overrides may be missed (use --scan-dir to narrow)"
+                    )
+                    return found
+                for name in files:
+                    if name in names:
+                        guest = self._guest(os.path.join(dirpath, name))
+                        if guest not in found:
+                            found.append(guest)
+        return found
+
+
 # --- entry point ------------------------------------------------------------
 
 
