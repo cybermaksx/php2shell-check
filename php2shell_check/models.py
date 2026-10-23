@@ -173,6 +173,7 @@ class PhpInstall:
     ini_files: list[str] = field(default_factory=list)  # php.ini first, then conf.d in load order
     ini_values: dict[str, str] = field(default_factory=dict)  # master values from phpinfo
     package: Package | None = None
+    package_lookup_failed: bool = False  # None above because dpkg/rpm failed, not "unowned"
     distro: Distro | None = None
     aliases: list[str] = field(default_factory=list)  # other paths resolving to binary
     ini_scan_dir: str | None = None  # conf.d directory PHP scans; None = none

@@ -76,6 +76,14 @@ def branch_of(text: str) -> str:
     return parse_upstream(text).branch
 
 
+def branch_or_none(text: str) -> str | None:
+    """Branch of a version, or None if the version cannot be parsed."""
+    try:
+        return parse_upstream(text).branch
+    except VersionError:
+        return None
+
+
 def compare_upstream(a: str, b: str) -> int:
     pa, pb = parse_upstream(a), parse_upstream(b)
     return (pa > pb) - (pa < pb)

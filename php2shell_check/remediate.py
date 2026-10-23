@@ -33,7 +33,7 @@ from .advisories import AdvisoryDB
 from .config import FileSystem, ParseResult, Pool, fpm_prefix, parse_fpm
 from .distro import CommandError, Runner, Which, describe_failure, run_command
 from .models import FailingContext, Finding, InstallStatus, Mitigation, PhpInstall
-from .version import VersionError, parse_upstream
+from .version import branch_or_none
 
 DROPIN_NAME = "99-php2shell-check.ini"
 DEFAULT_BACKUP_ROOT = "/var/backups/php2shell-check"
@@ -359,28 +359,58 @@ def validate(commands: Sequence[list[str]], run: Runner) -> list[str]:
     return problems
 
 
+SUSE_FAMILY = {"suse", "opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles"}
+
+# Side-by-side PHP builds and the unit each one installs.
+_SCL_UNITS = (
+    (re.compile(r"^/opt/remi/(php\d+)/"), "{}-php-fpm"),  # Remi SCL
+    (re.compile(r"^/opt/rh/(rh-php\d+)/"), "{}-php-fpm"),  # Red Hat Software Collections
+    (re.compile(r"^/opt/cpanel/(ea-php\d+)/"), "{}-php-fpm"),  # cPanel EasyApache
+    (re.compile(r"^/opt/plesk/php/(\d+)\.(\d+)/"), "plesk-php{}{}-fpm"),  # Plesk
+)
+
+
+def packaging_family(install: PhpInstall) -> str | None:
+    """"dpkg", "suse" or "rpm" from the owning package; None if unpackaged."""
+    if install.package is None:
+        return None
+    if install.package.manager == "dpkg":
+        return "dpkg"
+    distro = install.distro
+    family = {distro.os_id, *distro.id_like} if distro else set()
+    return "suse" if family & SUSE_FAMILY else "rpm"
+
+
 def service_units(install: PhpInstall) -> list[str]:
-    """systemd units that may run this install, most specific first."""
-    try:
-        branch = parse_upstream(install.version).branch
-    except VersionError:
-        branch = ""
-    flat = branch.replace(".", "")
+    """systemd units that may run this install, most likely first.
+
+    The report names the first; --fix tries each and restarts the active one.
+    Both use this function so they never disagree.
+    """
+    family = packaging_family(install)
     if install.sapi == "fpm-fcgi":
-        units = []
-        match = re.match(r"^/opt/remi/(php\d+)/", install.binary)
-        if match:
-            units.append(f"{match.group(1)}-php-fpm")
-        match = re.match(r"^/opt/cpanel/(ea-php\d+)/", install.binary)
-        if match:
-            units.append(f"{match.group(1)}-php-fpm")
-        if branch:
-            units.append(f"php{branch}-fpm")
-        units.append("php-fpm")
-        if flat:
-            units.append(f"php{flat}-php-fpm")
-        return list(dict.fromkeys(units))
+        for pattern, unit in _SCL_UNITS:
+            match = pattern.match(install.binary)
+            if match:
+                return [unit.format(*match.groups())]
+        branch = branch_or_none(install.version)
+        if branch is None:
+            # php -v failed; Debian names the binary php-fpm8.3 after its branch
+            match = re.search(r"php-fpm(\d+\.\d+)$", install.binary)
+            branch = match.group(1) if match else None
+        debian_unit = f"php{branch}-fpm" if branch else None
+        if family == "dpkg":
+            return [debian_unit] if debian_unit else []
+        if family in ("rpm", "suse"):
+            return ["php-fpm"]
+        return [u for u in (debian_unit, "php-fpm") if u]
     if install.sapi == "apache2handler":
+        if install.enabled is False:
+            return []  # no LoadModule line: Apache does not run this module
+        if family in ("dpkg", "suse"):
+            return ["apache2"]
+        if family == "rpm":
+            return ["httpd"]
         return ["apache2", "httpd"]
     if install.sapi == "litespeed":
         return ["lsws", "lshttpd"]

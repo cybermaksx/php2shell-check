@@ -156,13 +156,36 @@ def test_render_plan_shows_diff_side_effects_and_manual(modphp_root, db):
     assert "Side effects:" in text and "Manual steps" in text
 
 
+def _i(binary, sapi, version="8.3.6", manager=None, distro=None, enabled=None):
+    package = Package("p", "1", "p", manager) if manager else None
+    return PhpInstall(binary, sapi, version, package=package, distro=distro, enabled=enabled)
+
+
+SLES = Distro("sles", "15.6")
+
+
 @pytest.mark.parametrize(
     "install, expected",
     [
-        (PhpInstall("/usr/sbin/php-fpm8.3", "fpm-fcgi", "8.3.6"), ["php8.3-fpm", "php-fpm", "php83-php-fpm"]),
-        (PhpInstall("/opt/remi/php83/root/usr/sbin/php-fpm", "fpm-fcgi", "8.3.20"), ["php83-php-fpm", "php8.3-fpm", "php-fpm"]),
-        (PhpInstall("/usr/lib/apache2/modules/libphp8.3.so", "apache2handler", "8.3.6"), ["apache2", "httpd"]),
-        (PhpInstall("/usr/bin/php", "cli", "8.3.6"), []),
+        (_i("/usr/sbin/php-fpm8.3", "fpm-fcgi", manager="dpkg"), ["php8.3-fpm"]),
+        (_i("/usr/sbin/php-fpm", "fpm-fcgi", "8.0.30", manager="rpm"), ["php-fpm"]),
+        (_i("/usr/sbin/php-fpm", "fpm-fcgi", "8.2.20", manager="rpm", distro=SLES), ["php-fpm"]),
+        (_i("/opt/remi/php83/root/usr/sbin/php-fpm", "fpm-fcgi", manager="rpm"), ["php83-php-fpm"]),
+        (_i("/opt/cpanel/ea-php83/root/usr/sbin/php-fpm", "fpm-fcgi", manager="rpm"), ["ea-php83-php-fpm"]),
+        # review finding 3: Plesk and Red Hat SCL
+        (_i("/opt/plesk/php/8.3/sbin/php-fpm", "fpm-fcgi", manager="dpkg"), ["plesk-php83-fpm"]),
+        (_i("/opt/rh/rh-php73/root/usr/sbin/php-fpm", "fpm-fcgi", "7.3.33", manager="rpm"), ["rh-php73-php-fpm"]),
+        # review finding 4: unreadable version on Debian, branch from the binary name
+        (_i("/usr/sbin/php-fpm8.3", "fpm-fcgi", "", manager="dpkg"), ["php8.3-fpm"]),
+        (_i("/usr/sbin/php-fpm", "fpm-fcgi", "", manager="dpkg"), []),
+        (_i("/usr/local/sbin/php-fpm", "fpm-fcgi", "8.3.20"), ["php8.3-fpm", "php-fpm"]),
+        (_i("/usr/lib/apache2/modules/libphp8.3.so", "apache2handler", manager="dpkg"), ["apache2"]),
+        (_i("/usr/lib64/httpd/modules/libphp.so", "apache2handler", manager="rpm"), ["httpd"]),
+        # review finding 2: SUSE calls it apache2
+        (_i("/usr/lib64/apache2/mod_php8.so", "apache2handler", manager="rpm", distro=SLES), ["apache2"]),
+        # review finding 8: a module Apache does not load needs no restart
+        (_i("/usr/lib/apache2/modules/libphp8.3.so", "apache2handler", manager="dpkg", enabled=False), []),
+        (_i("/usr/bin/php", "cli"), []),
     ],
 )
 def test_service_units(install, expected):

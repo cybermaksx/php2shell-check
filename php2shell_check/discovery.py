@@ -29,7 +29,7 @@ from pathlib import Path
 from . import distro as distro_mod
 from .distro import CommandError, Runner, Which, describe_failure, run_command
 from .models import Distro, PhpInstall
-from .version import VersionError, parse_upstream
+from .version import VersionError, branch_or_none, parse_upstream
 
 # Directories searched for PHP binaries. Globs cover side-by-side installs:
 # Remi SCL, cPanel EasyApache, Plesk, LiteSpeed.
@@ -424,19 +424,12 @@ def _rooted(path: str, root: str) -> str:
 
 
 def find_fpm_config(install: PhpInstall, configure_command: str, root: str) -> None:
-    branch = _branch(install.version)
+    branch = branch_or_none(install.version)
     for candidate in fpm_config_candidates(install.binary, branch, configure_command):
         if os.path.isfile(_rooted(candidate, root)):
             install.fpm_config = candidate
             return
     install.warnings.append("php-fpm.conf not found in any known location; pools not checked")
-
-
-def _branch(version: str) -> str | None:
-    try:
-        return parse_upstream(version).branch
-    except VersionError:
-        return None
 
 
 def module_ini_files(branch: str | None, root: str) -> tuple[list[str], str | None]:
@@ -570,6 +563,7 @@ def discover(
         install.distro = host_distro
         package, warnings = distro_mod.lookup_package(install.binary, host_distro, run=run, which=which)
         install.package = package
+        install.package_lookup_failed = package is None and bool(warnings)
         install.warnings.extend(warnings)
         if install.sapi == "apache2handler" and not install.version:
             from_package = version_from_package(package.version) if package else None

@@ -15,7 +15,6 @@ from php2shell_check.assess import (
     finding_exit_code,
     judge_advisory,
     mitigation_status,
-    restart_unit,
     upgrade_advice,
     upgrade_command,
 )
@@ -332,7 +331,7 @@ def test_advice_for_unknown_rpm(db):
     f = found("8.3.30", package=rpm("php", "8.3.30-1.el9.remi"), distro=Distro("almalinux", "9.4", ("rhel",)), db=db)
     [advice] = upgrade_advice([f], db)
     assert advice.command == "dnf upgrade --refresh php-fpm"
-    assert "fixed upstream in 8.3.36" in advice.note
+    assert advice.note.startswith("PHP 8.3.30 < 8.3.36, but no advisory data for almalinux 9.4 php")
     assert advice.restart == "systemctl restart php-fpm"
 
 
@@ -340,7 +339,7 @@ def test_advice_for_eol_names_supported_branch(db):
     f = found("8.0.30", package=rpm("php", "8.0.30-8.el9_8.1"), distro=ROCKY_9, db=db)
     [advice] = upgrade_advice([f], db)
     assert "PHP 8.0 is end-of-life" in advice.note
-    assert "move to PHP 8.2 or newer" in advice.note
+    assert "move to PHP 8.2 (8.2.35 or newer)" in advice.note
 
 
 def test_advice_for_source_builds(db):
@@ -367,24 +366,80 @@ def test_source_build_cli_only_has_no_restart_note(db):
         (RHEL_7, "yum update php-fpm"),
         (Distro("sles", "15.6"), "zypper update php-fpm"),
         (Distro("fedora", "43"), "dnf upgrade --refresh php-fpm"),
+        # review finding 1: yum-only systems must not be told to use dnf
+        (Distro("amzn", "2", ("centos", "rhel", "fedora")), "yum update php-fpm"),
+        (Distro("amzn", "2023", ("fedora",)), "dnf upgrade --refresh php-fpm"),
+        (Distro("cloudlinux", "7.9", ("rhel", "fedora", "centos")), "yum update php-fpm"),
+        (Distro("centos", "6.10", ("rhel", "fedora")), "yum update php-fpm"),
+        (Distro("rocky", "9.4", ("rhel", "centos", "fedora")), "dnf upgrade --refresh php-fpm"),
     ],
 )
 def test_upgrade_command_per_family(distro, expected):
     assert upgrade_command("rpm", distro, ["php-fpm"]) == expected
 
 
+
+
+def test_eol_advice_names_a_branch_that_has_a_fix(db):
+    # review finding 5: the target branch must have a fixed release.
+    f = found("8.0.30", package=rpm("php", "8.0.30-8.el9_8.1"), distro=ROCKY_9, db=db)
+    [advice] = upgrade_advice([f], db)
+    assert "move to PHP 8.2 (8.2.35 or newer)" in advice.note
+
+
+def test_eol_advice_skips_a_supported_branch_without_a_fix(db):
+    raw = json.loads(advisories.DEFAULT_PATH.read_text())
+    for adv in raw["advisories"]:
+        adv.get("upstream", {}).get("fixed", [])[:] = [
+            f for f in adv.get("upstream", {}).get("fixed", []) if f["branch"] != "8.2"
+        ]
+    data = loads(json.dumps(raw))
+    f = found("8.0.30", package=rpm("php", "8.0.30-8.el9_8.1"), distro=ROCKY_9, db=data)
+    [advice] = upgrade_advice([f], data)
+    assert "move to PHP 8.3 (8.3.36 or newer)" in advice.note
+
+
+def test_failed_package_lookup_is_not_called_a_source_build(db):
+    # review finding 6: dpkg failing must not turn into "rebuild from source".
+    i = install("8.3.6", distro=UBUNTU_2404)
+    i.package_lookup_failed = True
+    f = assess(i, db, None)
+    assert "owning package could not be determined" in f.verdicts[0].reason
+    [advice] = upgrade_advice([f], db)
+    assert advice.note.startswith("Could not determine which package owns this PHP")
+    assert "rebuild" not in advice.note and advice.command is None
+
+
+def test_unpackaged_mod_php_gets_its_own_note_not_a_duplicate(db):
+    # review finding 6: mod_php from a source build has no version.
+    fpm = found("8.3.20", binary="/usr/local/sbin/php-fpm", db=db)
+    mod = found("", sapi="apache2handler", binary="/usr/local/apache2/modules/libphp.so", db=db)
+    advice = upgrade_advice([fpm, mod], db)
+    assert len(advice) == 2
+    assert advice[0].note.startswith("Not installed from a package: rebuild PHP 8.3.36")
+    assert advice[1].note.startswith("Not owned by a package and its PHP version is unknown")
+
+
 @pytest.mark.parametrize(
-    "binary, sapi, package, expected",
+    "version, package, distro, expected",
     [
-        ("/usr/sbin/php-fpm8.3", "fpm-fcgi", deb("php8.3", "1"), "php8.3-fpm"),
-        ("/usr/sbin/php-fpm", "fpm-fcgi", rpm("php", "1"), "php-fpm"),
-        ("/opt/remi/php83/root/usr/sbin/php-fpm", "fpm-fcgi", rpm("php83-php", "1"), "php83-php-fpm"),
-        ("/opt/cpanel/ea-php83/root/usr/sbin/php-fpm", "fpm-fcgi", rpm("ea-php83-php", "1"), "ea-php83-php-fpm"),
-        ("/usr/lib/apache2/modules/libphp8.3.so", "apache2handler", deb("php8.3", "1"), "apache2"),
-        ("/usr/lib64/httpd/modules/libphp.so", "apache2handler", rpm("php", "1"), "httpd"),
-        ("/usr/bin/php", "cli", None, None),
+        # review finding 7: the note gives the real reason
+        ("", deb("php8.3", "8.3.6-1"), UBUNTU_2404, "PHP version '' is unknown"),
+        ("8.3.20", deb("php8.3", "8.3.20-1"), None, "distribution unknown"),
+        ("8.3.20", deb("php8.3", "8.3.20-1+deb.sury.org+1"), Distro("ubuntu", "24.10"), "no advisory data for ubuntu 24.10 php8.3"),
     ],
 )
-def test_restart_unit(binary, sapi, package, expected):
-    i = PhpInstall(binary=binary, sapi=sapi, version="8.3.6", package=package)
-    assert restart_unit(i) == expected
+def test_unknown_advice_gives_the_real_reason(db, version, package, distro, expected):
+    [advice] = upgrade_advice([found(version, package=package, distro=distro, db=db)], db)
+    assert expected in advice.note
+    assert "in advisories.json" not in advice.note or "no advisory data" in expected
+
+
+def test_disabled_mod_php_is_not_restarted(db):
+    # review finding 8
+    mod = install("8.3.6", sapi="apache2handler", package=deb("php8.3", "8.3.6-0ubuntu0.24.04.12", "libapache2-mod-php8.3"), distro=UBUNTU_2404)
+    mod.binary, mod.enabled = "/usr/lib/apache2/modules/libphp8.3.so", False
+    fpm = install("8.3.6", package=deb("php8.3", "8.3.6-0ubuntu0.24.04.12"), distro=UBUNTU_2404)
+    fpm.binary = "/usr/sbin/php-fpm8.3"
+    [advice] = upgrade_advice([assess(mod, db, None), assess(fpm, db, None)], db)
+    assert advice.restart == "systemctl restart php8.3-fpm"
