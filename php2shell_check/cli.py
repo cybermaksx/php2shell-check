@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import __version__, remediate
 from .advisories import DEFAULT_PATH, AdvisoryDB, AdvisoryError, load
-from .assess import EXIT_ERROR, assess, exit_code
+from .assess import EXIT_ERROR, assess, exit_code, upgrade_advice
 from .config import WebConfig, check_install, load_web_config
 from .discovery import DiscoveryResult, HostFileSystem, discover
 from .models import Finding
@@ -119,14 +119,15 @@ def assess_host(args: argparse.Namespace, db: AdvisoryDB) -> HostAssessment:
 
 def print_report(args: argparse.Namespace, db: AdvisoryDB, host: HostAssessment) -> int:
     code = exit_code(host.findings)
+    advice = upgrade_advice(host.findings, db)
     if args.json:
         distro = None
         if host.discovery.distro:
             d = host.discovery.distro
             distro = {"id": d.os_id, "version_id": d.version_id, "name": d.pretty_name}
-        sys.stdout.write(render_json(host.findings, db, code, host.warnings, host.discovery.skipped, distro))
+        sys.stdout.write(render_json(host.findings, db, code, host.warnings, host.discovery.skipped, distro, advice))
     else:
-        sys.stdout.write(render_text(host.findings, db, host.warnings, host.discovery.skipped, args.verbose))
+        sys.stdout.write(render_text(host.findings, db, host.warnings, host.discovery.skipped, args.verbose, advice))
     return code
 
 

@@ -15,6 +15,9 @@ from php2shell_check.assess import (
     finding_exit_code,
     judge_advisory,
     mitigation_status,
+    restart_unit,
+    upgrade_advice,
+    upgrade_command,
 )
 from php2shell_check.config import ConfigReport, ContextValue, SettingResult
 from php2shell_check.models import (
@@ -295,3 +298,93 @@ def test_exit_code_priority():
     assert exit_code([F(InstallStatus.UNKNOWN), F(InstallStatus.EOL)]) == EXIT_EOL
     assert exit_code([F(InstallStatus.UNKNOWN), F(InstallStatus.VULNERABLE)]) == EXIT_EXPOSED
     assert exit_code([F(InstallStatus.PATCHED), F(InstallStatus.UNKNOWN)]) == EXIT_UNKNOWN
+
+
+# --- upgrade advice ---------------------------------------------------------
+
+
+def found(version, sapi="fpm-fcgi", package=None, distro=None, binary=None, db=None):
+    i = install(version, sapi=sapi, package=package, distro=distro)
+    if binary:
+        i.binary = binary
+    return assess(i, db, None)
+
+
+def test_advice_for_vulnerable_ubuntu_groups_one_source(db):
+    fpm = found("8.3.6", package=deb("php8.3", "8.3.6-0ubuntu0.24.04.12"), distro=UBUNTU_2404, db=db)
+    cli = found(
+        "8.3.6", sapi="cli", package=deb("php8.3", "8.3.6-0ubuntu0.24.04.12", "php8.3-cli"),
+        distro=UBUNTU_2404, binary="/usr/bin/php8.3", db=db,
+    )
+    [advice] = upgrade_advice([fpm, cli], db)
+    assert advice.command == "apt-get update && apt-get install --only-upgrade php8.3-cli php8.3-fpm"
+    assert advice.note == "ubuntu 24.04 has a fix: php8.3 8.3.6-0ubuntu0.24.04.13 (USN-8948-1)."
+    assert advice.restart == "systemctl restart php8.3-fpm"
+    assert advice.binaries == ["/usr/sbin/php-fpm", "/usr/bin/php8.3"]
+
+
+def test_no_advice_when_patched(db):
+    f = found("8.3.6", package=deb("php8.3", "8.3.6-0ubuntu0.24.04.13"), distro=UBUNTU_2404, db=db)
+    assert upgrade_advice([f], db) == []
+
+
+def test_advice_for_unknown_rpm(db):
+    f = found("8.3.30", package=rpm("php", "8.3.30-1.el9.remi"), distro=Distro("almalinux", "9.4", ("rhel",)), db=db)
+    [advice] = upgrade_advice([f], db)
+    assert advice.command == "dnf upgrade --refresh php-fpm"
+    assert "fixed upstream in 8.3.36" in advice.note
+    assert advice.restart == "systemctl restart php-fpm"
+
+
+def test_advice_for_eol_names_supported_branch(db):
+    f = found("8.0.30", package=rpm("php", "8.0.30-8.el9_8.1"), distro=ROCKY_9, db=db)
+    [advice] = upgrade_advice([f], db)
+    assert "PHP 8.0 is end-of-life" in advice.note
+    assert "move to PHP 8.2 or newer" in advice.note
+
+
+def test_advice_for_source_builds(db):
+    fpm = found("8.3.20", binary="/usr/local/sbin/php-fpm", db=db)
+    cli = found("8.3.20", sapi="cli", binary="/usr/local/bin/php", db=db)
+    eol = found("8.1.33", binary="/opt/php81/sbin/php-fpm", db=db)
+    advice = upgrade_advice([fpm, cli, eol], db)
+    assert len(advice) == 2  # php and php-fpm of one build are grouped
+    assert advice[0].binaries == ["/usr/local/sbin/php-fpm", "/usr/local/bin/php"]
+    assert advice[0].command is None and advice[0].restart is None  # no unit name invented
+    assert advice[0].note.startswith("Not installed from a package: rebuild PHP 8.3.36 or newer from source.")
+    assert "restart PHP-FPM" in advice[0].note
+    assert "PHP-8.1-CVE-2026-109618-109619" in advice[1].note
+
+
+def test_source_build_cli_only_has_no_restart_note(db):
+    [advice] = upgrade_advice([found("8.3.20", sapi="cli", binary="/usr/local/bin/php", db=db)], db)
+    assert "restart" not in advice.note
+
+
+@pytest.mark.parametrize(
+    "distro, expected",
+    [
+        (RHEL_7, "yum update php-fpm"),
+        (Distro("sles", "15.6"), "zypper update php-fpm"),
+        (Distro("fedora", "43"), "dnf upgrade --refresh php-fpm"),
+    ],
+)
+def test_upgrade_command_per_family(distro, expected):
+    assert upgrade_command("rpm", distro, ["php-fpm"]) == expected
+
+
+@pytest.mark.parametrize(
+    "binary, sapi, package, expected",
+    [
+        ("/usr/sbin/php-fpm8.3", "fpm-fcgi", deb("php8.3", "1"), "php8.3-fpm"),
+        ("/usr/sbin/php-fpm", "fpm-fcgi", rpm("php", "1"), "php-fpm"),
+        ("/opt/remi/php83/root/usr/sbin/php-fpm", "fpm-fcgi", rpm("php83-php", "1"), "php83-php-fpm"),
+        ("/opt/cpanel/ea-php83/root/usr/sbin/php-fpm", "fpm-fcgi", rpm("ea-php83-php", "1"), "ea-php83-php-fpm"),
+        ("/usr/lib/apache2/modules/libphp8.3.so", "apache2handler", deb("php8.3", "1"), "apache2"),
+        ("/usr/lib64/httpd/modules/libphp.so", "apache2handler", rpm("php", "1"), "httpd"),
+        ("/usr/bin/php", "cli", None, None),
+    ],
+)
+def test_restart_unit(binary, sapi, package, expected):
+    i = PhpInstall(binary=binary, sapi=sapi, version="8.3.6", package=package)
+    assert restart_unit(i) == expected

@@ -184,6 +184,16 @@ class PhpInstall:
 # --- assessment results -----------------------------------------------------
 
 
+@dataclass
+class UpgradeAdvice:
+    """What to run (or do) to get a fixed PHP. Shown, never executed."""
+
+    note: str
+    binaries: list[str]
+    command: str | None = None  # None: no package manager command applies
+    restart: str | None = None
+
+
 @dataclass(frozen=True)
 class AdvisoryVerdict:
     advisory_id: str

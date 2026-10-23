@@ -13,11 +13,13 @@ Pure: no files, no processes. The rules, in order:
 4. The install's status is the worst across advisories:
    VULNERABLE > EOL > UNKNOWN > PATCHED.
 
-Mitigations are checked for anything not PATCHED.
+Mitigations are checked for anything not PATCHED. upgrade_advice() says
+what to run to get a fixed PHP; nothing here runs it.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 from .advisories import AdvisoryDB, find_distro_fix, find_upstream_fix, mitigations_for
@@ -25,14 +27,16 @@ from .config import ConfigReport, SettingResult
 from .models import (
     Advisory,
     AdvisoryVerdict,
+    Distro,
     FailingContext,
     Finding,
     InstallStatus,
     MitigationStatus,
     PhpInstall,
     SettingCheck,
+    UpgradeAdvice,
 )
-from .version import VersionError, compare_upstream, is_at_least, parse_upstream
+from .version import VersionError, compare_package, compare_upstream, is_at_least, parse_upstream
 
 _SEVERITY = {
     InstallStatus.VULNERABLE: 3,
@@ -203,6 +207,137 @@ def assess(install: PhpInstall, db: AdvisoryDB, config: ConfigReport | None) -> 
     ]
     finding.mitigation = mitigation_status(finding.mitigations)
     return finding
+
+
+# --- how to get a fixed PHP -------------------------------------------------
+
+SUSE_FAMILY = {"suse", "opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles"}
+
+
+def _branch(version: str) -> str | None:
+    try:
+        return parse_upstream(version).branch
+    except VersionError:
+        return None
+
+
+def upgrade_command(manager: str, distro: Distro | None, names: Sequence[str]) -> str:
+    packages = " ".join(names)
+    if manager == "dpkg":
+        return f"apt-get update && apt-get install --only-upgrade {packages}"
+    family = {distro.os_id, *distro.id_like} if distro else set()
+    if family & SUSE_FAMILY:
+        return f"zypper update {packages}"
+    if distro and distro.os_id in ("rhel", "centos", "ol") and distro.version_id.split(".")[0] == "7":
+        return f"yum update {packages}"
+    return f"dnf upgrade --refresh {packages}"
+
+
+def restart_unit(install: PhpInstall) -> str | None:
+    """The systemd unit most likely serving this install, by packaging family."""
+    rpm_family = install.package is not None and install.package.manager == "rpm"
+    if install.sapi == "fpm-fcgi":
+        for prefix, unit in (("/opt/remi/", "{}-php-fpm"), ("/opt/cpanel/", "{}-php-fpm")):
+            if install.binary.startswith(prefix):
+                return unit.format(install.binary.split("/")[3])
+        branch = _branch(install.version)
+        return "php-fpm" if rpm_family or not branch else f"php{branch}-fpm"
+    if install.sapi == "apache2handler":
+        return "httpd" if rpm_family else "apache2"
+    return None
+
+
+def _distro_fix(db: AdvisoryDB, install: PhpInstall) -> tuple[str, str] | None:
+    """The newest distro fixed version (and advisory) across advisories."""
+    if install.package is None or install.distro is None:
+        return None
+    best: tuple[str, str] | None = None
+    for adv in db.advisories:
+        row = find_distro_fix(adv, install.distro, install.package.source_name)
+        if row is None or not row.fixed:
+            continue
+        if best is None or compare_package(row.fixed, best[0], row.scheme) > 0:
+            best = (row.fixed, row.advisory or ", ".join(row.sources))
+    return best
+
+
+def _upstream_fix(db: AdvisoryDB, branch: str | None) -> str | None:
+    if branch is None:
+        return None
+    versions = [f.version for adv in db.advisories if (f := find_upstream_fix(adv, branch))]
+    return max(versions, key=parse_upstream) if versions else None
+
+
+def _supported_branches(db: AdvisoryDB) -> str:
+    supported = sorted((b for b, info in db.branches.items() if not info.eol), key=lambda b: tuple(map(int, b.split("."))))
+    return f"PHP {supported[0]} or newer" if supported else "a supported PHP branch"
+
+
+def upgrade_advice(findings: Sequence[Finding], db: AdvisoryDB) -> list[UpgradeAdvice]:
+    """One piece of advice per source package (or per unpackaged binary) that
+    is not PATCHED. Shown to the user, never run."""
+    groups: dict[tuple[str, str], list[Finding]] = {}
+    for f in findings:
+        if f.status is InstallStatus.PATCHED:
+            continue
+        p = f.install.package
+        if p:
+            key = (p.manager, p.source_name)
+        else:
+            # One source build installs php and php-fpm under the same prefix
+            # (/usr/local/bin/php, /usr/local/sbin/php-fpm): one piece of advice.
+            key = ("", f"{os.path.dirname(os.path.dirname(f.install.binary))} {f.install.version}")
+        groups.setdefault(key, []).append(f)
+
+    advice = []
+    for (manager, _), group in groups.items():
+        status = worst([f.status for f in group])
+        first = group[0].install
+        branch = _branch(first.version)
+        binaries = [f.install.binary for f in group]
+        units = list(dict.fromkeys(u for f in group if (u := restart_unit(f.install))))
+        restart = f"systemctl restart {' '.join(units)}" if units else None
+
+        if not manager:  # not installed from a package
+            fixed = _upstream_fix(db, branch)
+            info = db.branches.get(branch or "")
+            if status is InstallStatus.EOL:
+                backport = f" or apply the {info.source_backport} branch" if info and info.source_backport else ""
+                note = (
+                    f"PHP {branch} built from source and end-of-life: move to {_supported_branches(db)}"
+                    f"{backport}, then rebuild."
+                )
+            elif fixed:
+                note = f"Not installed from a package: rebuild PHP {fixed} or newer from source."
+            else:
+                note = "Not installed from a package and no fixed release is known for this branch."
+            if any(f.install.sapi not in NON_WEB_SAPIS for f in group):
+                # No package means no known unit name; do not invent one.
+                note += " Then restart PHP-FPM or the web server that runs it."
+            advice.append(UpgradeAdvice(note, binaries))
+            continue
+
+        names = sorted({f.install.package.name for f in group})
+        command = upgrade_command(manager, first.distro, names)
+        where = f"{first.distro.os_id} {first.distro.version_id}" if first.distro else "this system"
+        source = first.package.source_name
+        if status is InstallStatus.VULNERABLE:
+            fix = _distro_fix(db, first)
+            note = f"{where} has a fix: {source} {fix[0]} ({fix[1]})." if fix else f"{where} has a fix for {source}."
+        elif status is InstallStatus.EOL:
+            note = (
+                f"PHP {branch} is end-of-life upstream. Updating helps only if your vendor backports "
+                f"the fix; otherwise move to {_supported_branches(db)}."
+            )
+        else:
+            fixed = _upstream_fix(db, branch)
+            upstream = f" (fixed upstream in {fixed})" if fixed else ""
+            note = (
+                f"No fix data for {where} {source} in advisories.json{upstream}. "
+                "Update, then check your vendor's advisory for the fixed version."
+            )
+        advice.append(UpgradeAdvice(note, binaries, command, restart))
+    return advice
 
 
 # --- exit code --------------------------------------------------------------

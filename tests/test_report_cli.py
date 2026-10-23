@@ -56,6 +56,17 @@ def test_text_report(findings, db):
     assert DISCLAIMER in text
 
 
+def test_text_and_json_show_upgrade_advice(findings, db):
+    from php2shell_check.assess import upgrade_advice
+
+    advice = upgrade_advice(findings, db)
+    text = render_text(findings, db, advice=advice)
+    assert "To get a fixed PHP (run these yourself; this tool never installs packages):" in text
+    assert "$ apt-get update && apt-get install --only-upgrade php8.3-fpm" in text
+    doc = json.loads(render_json(findings, db, 3, advice=advice))
+    assert doc["upgrade"][0]["command"] == "apt-get update && apt-get install --only-upgrade php8.3-fpm"
+
+
 def test_text_report_verbose_shows_hardening(findings, db):
     assert "hardening (informational)" not in render_text(findings, db)
     assert "hardening (informational)" in render_text(findings, db, verbose=True)

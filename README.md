@@ -25,7 +25,9 @@ Author: Magsud Huseynli ([cybermaksx](https://github.com/cybermaksx)), <cybermak
 ## What it does not do
 
 - It does not install, upgrade or downgrade packages. The only real fix is
-  an updated PHP; `--fix` only applies interim mitigations.
+  an updated PHP; `--fix` only applies interim mitigations. The report
+  prints the update command for you to run (see
+  [Getting a fixed PHP](#getting-a-fixed-php)).
 - It does not edit nginx or Apache configuration, `.htaccess`, `.user.ini`
   or `[PATH=]` / `[HOST=]` sections. Problems there are listed as manual
   steps with their `file:line`.
@@ -185,6 +187,28 @@ worker afterwards; a reload is not enough.
 `conf.d/99-php2shell-check.ini`, and adds `php_admin_value` /
 `php_admin_flag` lines to failing FPM pools. Every line it adds is marked
 with a dated comment. Remove them after updating PHP.
+
+## Getting a fixed PHP
+
+For every install that is not `PATCHED`, the report ends with what to do,
+grouped per source package so related packages are updated together:
+
+```
+To get a fixed PHP (run these yourself; this tool never installs packages):
+  /usr/bin/php8.3, /usr/sbin/php-fpm8.3:
+    ubuntu 24.04 has a fix: php8.3 8.3.6-0ubuntu0.24.04.13 (USN-8948-1).
+    $ apt-get update && apt-get install --only-upgrade php8.3-cli php8.3-fpm
+    $ systemctl restart php8.3-fpm
+```
+
+The command depends on the package manager (`apt-get`, `dnf`, `yum` on
+EL7, `zypper` on SUSE) and asks for confirmation as usual. For an `EOL`
+branch the advice is to move to a supported branch, since updating helps
+only if the vendor backports fixes. For a source build it names the fixed
+release to rebuild. The same advice is in the JSON report under `upgrade`.
+
+Run the tool again afterwards: an updated distribution package shows up as
+`PATCHED`.
 
 ## Limitations
 

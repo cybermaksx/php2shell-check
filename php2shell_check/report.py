@@ -8,7 +8,7 @@ from typing import Any
 
 from . import __version__
 from .advisories import AdvisoryDB
-from .models import Finding, InstallStatus, MitigationStatus, SettingCheck
+from .models import Finding, InstallStatus, MitigationStatus, SettingCheck, UpgradeAdvice
 
 DISCLAIMER = (
     "Mitigations reduce exposure to specific attack paths; they do not make an "
@@ -54,12 +54,25 @@ def _check_lines(check: SettingCheck, verbose: bool) -> list[str]:
     return lines
 
 
+def _advice_lines(advice: Sequence[UpgradeAdvice]) -> list[str]:
+    out = ["", "To get a fixed PHP (run these yourself; this tool never installs packages):"]
+    for item in advice:
+        out.append(f"  {', '.join(item.binaries)}:")
+        out.append(f"    {item.note}")
+        if item.command:
+            out.append(f"    $ {item.command}")
+        if item.restart:
+            out.append(f"    $ {item.restart}")
+    return out
+
+
 def render_text(
     findings: Sequence[Finding],
     db: AdvisoryDB,
     warnings: Sequence[str] = (),
     skipped: Sequence[tuple[str, str]] = (),
     verbose: bool = False,
+    advice: Sequence[UpgradeAdvice] = (),
 ) -> str:
     out: list[str] = [f"php2shell-check {__version__}  (advisory data {db.updated})", ""]
     if not findings:
@@ -94,6 +107,8 @@ def render_text(
         for warning in f.warnings:
             out.append(f"  warning: {warning}")
 
+    if advice:
+        out += _advice_lines(advice)
     if skipped and verbose:
         out += ["", "Skipped:"]
         out += [f"  {path}: {why}" for path, why in skipped]
@@ -154,6 +169,7 @@ def render_json(
     warnings: Sequence[str] = (),
     skipped: Sequence[tuple[str, str]] = (),
     distro: dict[str, str] | None = None,
+    advice: Sequence[UpgradeAdvice] = (),
 ) -> str:
     document = {
         "tool": "php2shell-check",
@@ -166,6 +182,9 @@ def render_json(
         }
         | {status.value: sum(1 for f in findings if f.mitigation is status) for status in MitigationStatus},
         "installs": [finding_dict(f) for f in findings],
+        "upgrade": [
+            {"binaries": a.binaries, "note": a.note, "command": a.command, "restart": a.restart} for a in advice
+        ],
         "skipped": [{"path": p, "reason": r} for p, r in skipped],
         "warnings": list(warnings),
         "sources": {s.id: s.url for s in db.sources.values()},
